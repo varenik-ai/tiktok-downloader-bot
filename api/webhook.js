@@ -149,30 +149,23 @@ export default async function handler(req, res) {
 
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
 
+    // Отладка — показываем размер файла
+    await sendMessage(chatId, `🔍 Размер файла: ${fileSizeMb.toFixed(2)} МБ (${fileSize} байт)`);
+
     if (fileSize > 0 && fileSizeMb > 50) {
-      // Больше 50 МБ — отправляем как документ
       const result = await sendDocument(chatId, videoUrl, caption + `\n\n📦 ${fileSizeMb.toFixed(1)} МБ`);
-      if (!result?.ok) {
-        await sendMessage(chatId, `❌ Файл слишком большой для отправки (${fileSizeMb.toFixed(1)} МБ).\nTelegram принимает файлы до 2 ГБ, но этот не удалось передать.`);
-      }
+      await sendMessage(chatId, `sendDocument result: ${JSON.stringify(result?.ok)} — ${result?.description || ""}`);
     } else {
-      // До 50 МБ — отправляем как видео
       const result = await sendVideo(chatId, videoUrl, caption);
+      await sendMessage(chatId, `sendVideo result: ${JSON.stringify(result?.ok)} — ${result?.description || ""}`);
       if (!result?.ok) {
-        // Фоллбек — отправляем как документ
         await sendDocument(chatId, videoUrl, caption);
       }
     }
 
   } catch (err) {
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
-    await sendMessage(chatId,
-      `❌ <b>Не удалось скачать видео</b>\n\n` +
-      `Возможные причины:\n` +
-      `• Видео приватное\n` +
-      `• Неверная ссылка\n` +
-      `• Попробуй ещё раз через минуту`
-    );
+    await sendMessage(chatId, `❌ Ошибка: ${err.message}`);
   }
 
   return res.status(200).json({ ok: true });
