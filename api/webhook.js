@@ -173,7 +173,8 @@ export default async function handler(req, res) {
   try {
     const data = await getTikTokVideo(text);
     const videoUrl = data.hdplay || data.play;
-    const caption = `❤️ Скачано без водяного знака\n🤖 <a href="https://t.me/tiktok_pro_save_bot">TikTok Saver Pro</a>`;
+    const caption = `❤️ Скачано без водяного знака
+🤖 @tiktok_pro_save_bot`;
 
     const buffer = await downloadBuffer(videoUrl);
     const fileSizeMb = buffer.length / (1024 * 1024);
