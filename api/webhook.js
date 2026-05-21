@@ -146,7 +146,8 @@ export default async function handler(req, res) {
       `👋 <b>Привет!</b>\n\n` +
       `Я скачиваю видео из TikTok <b>без водяного знака</b>.\n\n` +
       `Просто отправь мне ссылку на видео TikTok — и я пришлю тебе чистый mp4.\n\n` +
-      `📎 Пример:\n<code>https://www.tiktok.com/@user/video/123456</code>`
+      `📎 Пример:\n<code>https://www.tiktok.com/@user/video/123456</code>\n\n` +
+      `🤖 <a href="https://t.me/tiktok_pro_save_bot">Поделиться ботом</a>`
     );
     return res.status(200).json({ ok: true });
   }
@@ -172,7 +173,7 @@ export default async function handler(req, res) {
   try {
     const data = await getTikTokVideo(text);
     const videoUrl = data.hdplay || data.play;
-    const caption = `❤️ Скачано @tiktok_save_pro_bot`;
+    const caption = `❤️ Скачано без водяного знака\n🤖 <a href="https://t.me/tiktok_pro_save_bot">TikTok Saver Pro</a>`;
 
     const buffer = await downloadBuffer(videoUrl);
     const fileSizeMb = buffer.length / (1024 * 1024);
