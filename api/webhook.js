@@ -3,6 +3,7 @@ import http from "http";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { randomBytes } from "crypto";
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || "10");
@@ -58,12 +59,57 @@ function deleteMessage(chatId, messageId) {
   return tgRequest("deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
-function sendVideo(chatId, videoUrl, caption) {
-  return tgRequest("sendVideo", { chat_id: chatId, video: videoUrl, caption, parse_mode: "HTML", supports_streaming: true });
+// Скачиваем видео в буфер
+function downloadBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
+    const req = lib.get(url, { headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://www.tiktok.com/" } }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadBuffer(res.headers.location).then(resolve).catch(reject);
+      }
+      const chunks = [];
+      res.on("data", c => chunks.push(c));
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
-function sendDocument(chatId, fileUrl, caption) {
-  return tgRequest("sendDocument", { chat_id: chatId, document: fileUrl, caption, parse_mode: "HTML" });
+// Отправляем видео как multipart/form-data
+function sendVideoBuffer(chatId, buffer, caption) {
+  return new Promise((resolve, reject) => {
+    const boundary = randomBytes(16).toString("hex");
+    const filename = "video.mp4";
+
+    const part1 = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="supports_streaming"\r\n\r\ntrue\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="${filename}"\r\nContent-Type: video/mp4\r\n\r\n`
+    );
+    const part2 = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const body = Buffer.concat([part1, buffer, part2]);
+
+    const options = {
+      hostname: "api.telegram.org",
+      path: `/bot${BOT_TOKEN}/sendVideo`,
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": body.length
+      }
+    };
+
+    const req = https.request(options, res => {
+      let buf = "";
+      res.on("data", c => buf += c);
+      res.on("end", () => resolve(JSON.parse(buf)));
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 async function getTikTokVideo(url) {
@@ -86,17 +132,6 @@ async function getTikTokVideo(url) {
     });
     req.on("error", reject);
     req.write(formData);
-    req.end();
-  });
-}
-
-async function getFileSize(url) {
-  return new Promise((resolve) => {
-    const lib = url.startsWith("https") ? https : http;
-    const req = lib.request(url, { method: "HEAD" }, res => {
-      resolve(parseInt(res.headers["content-length"] || "0"));
-    });
-    req.on("error", () => resolve(0));
     req.end();
   });
 }
@@ -144,28 +179,35 @@ export default async function handler(req, res) {
     const data = await getTikTokVideo(text);
     const videoUrl = data.hdplay || data.play;
     const caption = `❤️ Скачано @tiktok_save_pro_bot`;
-    const fileSize = await getFileSize(videoUrl);
-    const fileSizeMb = fileSize / (1024 * 1024);
+
+    // Скачиваем видео в буфер на сервере
+    const buffer = await downloadBuffer(videoUrl);
+    const fileSizeMb = buffer.length / (1024 * 1024);
 
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
 
-    // Отладка — показываем размер файла
-    await sendMessage(chatId, `🔍 Размер файла: ${fileSizeMb.toFixed(2)} МБ (${fileSize} байт)`);
-
-    if (fileSize > 0 && fileSizeMb > 50) {
-      const result = await sendDocument(chatId, videoUrl, caption + `\n\n📦 ${fileSizeMb.toFixed(1)} МБ`);
-      await sendMessage(chatId, `sendDocument result: ${JSON.stringify(result?.ok)} — ${result?.description || ""}`);
+    if (fileSizeMb > 50) {
+      await sendMessage(chatId,
+        `❌ Видео слишком большое (${fileSizeMb.toFixed(1)} МБ).\n` +
+        `Telegram принимает файлы до 50 МБ через бота.\n\n` +
+        `Попробуй найти более короткую версию видео.`
+      );
     } else {
-      const result = await sendVideo(chatId, videoUrl, caption);
-      await sendMessage(chatId, `sendVideo result: ${JSON.stringify(result?.ok)} — ${result?.description || ""}`);
+      const result = await sendVideoBuffer(chatId, buffer, caption);
       if (!result?.ok) {
-        await sendDocument(chatId, videoUrl, caption);
+        await sendMessage(chatId, `❌ Не удалось отправить видео: ${result?.description || "неизвестная ошибка"}`);
       }
     }
 
   } catch (err) {
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
-    await sendMessage(chatId, `❌ Ошибка: ${err.message}`);
+    await sendMessage(chatId,
+      `❌ <b>Не удалось скачать видео</b>\n\n` +
+      `Возможные причины:\n` +
+      `• Видео приватное\n` +
+      `• Неверная ссылка\n` +
+      `• Попробуй ещё раз через минуту`
+    );
   }
 
   return res.status(200).json({ ok: true });
