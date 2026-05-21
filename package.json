@@ -1,0 +1,12 @@
+{
+  "name": "tiktok-downloader-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "@distube/ytdl-core": "^4.14.4"
+  }
+}
