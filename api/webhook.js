@@ -75,11 +75,12 @@ function downloadBuffer(url) {
   });
 }
 
-function sendVideoBuffer(chatId, buffer) {
+function sendVideoBuffer(chatId, buffer, caption) {
   return new Promise((resolve, reject) => {
     const boundary = randomBytes(16).toString("hex");
     const part1 = Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n` +
       `--${boundary}\r\nContent-Disposition: form-data; name="supports_streaming"\r\n\r\ntrue\r\n` +
       `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="video.mp4"\r\nContent-Type: video/mp4\r\n\r\n`
     );
@@ -179,6 +180,11 @@ export default async function handler(req, res) {
     const data = await getTikTokVideo(text);
     const videoUrl = data.hdplay || data.play;
 
+    // Подпись интегрирована в видео — @username кликабелен автоматически
+    const caption = isRu
+      ? "❤️ Скачано @tiktok_pro_save_bot"
+      : "❤️ Downloaded by @tiktok_pro_save_bot";
+
     const buffer = await downloadBuffer(videoUrl);
     const fileSizeMb = buffer.length / (1024 * 1024);
 
@@ -190,14 +196,9 @@ export default async function handler(req, res) {
           : `❌ Video is too large (${fileSizeMb.toFixed(1)} MB).\nTelegram bots support up to 50 MB.`
       );
     } else {
-      const result = await sendVideoBuffer(chatId, buffer);
+      const result = await sendVideoBuffer(chatId, buffer, caption);
       if (waitMsgId) await deleteMessage(chatId, waitMsgId);
-      if (result?.ok) {
-        // Отправляем подпись отдельным сообщением — так ссылка будет кликабельной
-        await sendMessage(chatId,
-          `${isRu ? "⬇️ Скачать TikTok без водяного знака → @tiktok_pro_save_bot" : "⬇️ Download TikTok without watermark → @tiktok_pro_save_bot"}`
-        );
-      } else {
+      if (!result?.ok) {
         await sendMessage(chatId,
           isRu
             ? `❌ Не удалось отправить видео: ${result?.description || "неизвестная ошибка"}`
