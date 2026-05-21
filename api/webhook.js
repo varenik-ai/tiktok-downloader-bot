@@ -153,18 +153,27 @@ export default async function handler(req, res) {
 
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
 
-   if (fileSize > 0 && fileSizeMb > 50) {
-  // Больше 50 МБ — превью + кнопка скачать
-  await sendPhoto(chatId, thumbUrl, caption + `\n\n📦 Размер: ${fileSizeMb.toFixed(1)} МБ\n⬇️ Нажми кнопку ниже чтобы скачать`, videoUrl);
-} else {
-  // До 50 МБ или размер неизвестен — отправляем напрямую
-  try {
-    await sendVideo(chatId, videoUrl, caption);
-  } catch {
-    // Если не получилось — даём прямую ссылку
-    await sendPhoto(chatId, thumbUrl, caption + `\n\n⬇️ Нажми кнопку ниже чтобы скачать`, videoUrl);
-  }
-}
+    if (fileSize > 0 && fileSizeMb > 50) {
+      // Больше 50 МБ — превью + кнопка скачать напрямую
+      await sendPhoto(
+        chatId,
+        thumbUrl,
+        caption + `\n\n📦 ${fileSizeMb.toFixed(1)} МБ · нажми кнопку чтобы скачать`,
+        videoUrl
+      );
+    } else {
+      // До 50 МБ — пробуем отправить видео
+      const result = await sendVideo(chatId, videoUrl, caption);
+      // Если Telegram не смог отправить — даём прямую ссылку
+      if (!result?.ok) {
+        await sendPhoto(
+          chatId,
+          thumbUrl,
+          caption + `\n\n⬇️ Нажми кнопку чтобы скачать`,
+          videoUrl
+        );
+      }
+    }
 
   } catch (err) {
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
