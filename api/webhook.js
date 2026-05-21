@@ -195,7 +195,7 @@ export default async function handler(req, res) {
       if (result?.ok) {
         // Отправляем подпись отдельным сообщением — так ссылка будет кликабельной
         await sendMessage(chatId,
-          `❤️ ${isRu ? "Скачано" : "Saved by"} <a href="https://t.me/tiktok_pro_save_bot">@tiktok_pro_save_bot</a>`
+          `${isRu ? "⬇️ Скачать TikTok без водяного знака → @tiktok_pro_save_bot" : "⬇️ Download TikTok without watermark → @tiktok_pro_save_bot"}`
         );
       } else {
         await sendMessage(chatId,
