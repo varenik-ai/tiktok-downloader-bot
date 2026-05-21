@@ -8,24 +8,17 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || "10");
 const COUNTERS_FILE = join(tmpdir(), "counters.json");
 
-// Читаем счётчики
 function getCounters() {
   try {
-    if (existsSync(COUNTERS_FILE)) {
-      return JSON.parse(readFileSync(COUNTERS_FILE, "utf8"));
-    }
+    if (existsSync(COUNTERS_FILE)) return JSON.parse(readFileSync(COUNTERS_FILE, "utf8"));
   } catch {}
   return {};
 }
 
-// Сохраняем счётчики
 function saveCounters(data) {
-  try {
-    writeFileSync(COUNTERS_FILE, JSON.stringify(data), "utf8");
-  } catch {}
+  try { writeFileSync(COUNTERS_FILE, JSON.stringify(data), "utf8"); } catch {}
 }
 
-// Проверяем лимит пользователя
 function checkLimit(userId) {
   const counters = getCounters();
   const today = new Date().toISOString().slice(0, 10);
@@ -35,29 +28,6 @@ function checkLimit(userId) {
   counters[key] = count + 1;
   saveCounters(counters);
   return true;
-}
-
-// Отправляем сообщение в Telegram
-async function sendMessage(chatId, text, extra = {}) {
-  return tgRequest("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...extra });
-}
-
-// Отправляем видео
-async function sendVideo(chatId, videoUrl, caption) {
-  return tgRequest("sendVideo", { chat_id: chatId, video: videoUrl, caption, parse_mode: "HTML", supports_streaming: true });
-}
-
-// Отправляем фото с кнопкой скачать
-async function sendPhoto(chatId, thumbUrl, caption, downloadUrl) {
-  return tgRequest("sendPhoto", {
-    chat_id: chatId,
-    photo: thumbUrl,
-    caption,
-    parse_mode: "HTML",
-    reply_markup: JSON.stringify({
-      inline_keyboard: [[{ text: "⬇️ Скачать видео", url: downloadUrl }]]
-    })
-  });
 }
 
 function tgRequest(method, body) {
@@ -80,19 +50,31 @@ function tgRequest(method, body) {
   });
 }
 
-// Получаем прямую ссылку на видео через tikwm.com (бесплатно, без API ключа)
+function sendMessage(chatId, text, extra = {}) {
+  return tgRequest("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...extra });
+}
+
+function deleteMessage(chatId, messageId) {
+  return tgRequest("deleteMessage", { chat_id: chatId, message_id: messageId });
+}
+
+function sendVideo(chatId, videoUrl, caption) {
+  return tgRequest("sendVideo", { chat_id: chatId, video: videoUrl, caption, parse_mode: "HTML", supports_streaming: true });
+}
+
+function sendPhoto(chatId, thumbUrl, caption, downloadUrl) {
+  return tgRequest("sendPhoto", {
+    chat_id: chatId, photo: thumbUrl, caption, parse_mode: "HTML",
+    reply_markup: JSON.stringify({ inline_keyboard: [[{ text: "⬇️ Скачать видео", url: downloadUrl }]] })
+  });
+}
+
 async function getTikTokVideo(url) {
   return new Promise((resolve, reject) => {
     const formData = `url=${encodeURIComponent(url)}&hd=1`;
     const options = {
-      hostname: "www.tikwm.com",
-      path: "/api/",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(formData),
-        "User-Agent": "Mozilla/5.0"
-      }
+      hostname: "www.tikwm.com", path: "/api/", method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(formData), "User-Agent": "Mozilla/5.0" }
     };
     const req = https.request(options, res => {
       let buf = "";
@@ -100,14 +82,9 @@ async function getTikTokVideo(url) {
       res.on("end", () => {
         try {
           const json = JSON.parse(buf);
-          if (json.code === 0 && json.data) {
-            resolve(json.data);
-          } else {
-            reject(new Error("Не удалось получить видео"));
-          }
-        } catch {
-          reject(new Error("Ошибка парсинга ответа"));
-        }
+          if (json.code === 0 && json.data) resolve(json.data);
+          else reject(new Error("Не удалось получить видео"));
+        } catch { reject(new Error("Ошибка парсинга")); }
       });
     });
     req.on("error", reject);
@@ -116,13 +93,11 @@ async function getTikTokVideo(url) {
   });
 }
 
-// Получаем размер файла по URL
 async function getFileSize(url) {
   return new Promise((resolve) => {
     const lib = url.startsWith("https") ? https : http;
     const req = lib.request(url, { method: "HEAD" }, res => {
-      const size = parseInt(res.headers["content-length"] || "0");
-      resolve(size);
+      resolve(parseInt(res.headers["content-length"] || "0"));
     });
     req.on("error", () => resolve(0));
     req.end();
@@ -130,9 +105,7 @@ async function getFileSize(url) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(200).json({ ok: true });
-  }
+  if (req.method !== "POST") return res.status(200).json({ ok: true });
 
   const update = req.body;
   const message = update?.message;
@@ -142,7 +115,6 @@ export default async function handler(req, res) {
   const userId = message.from.id;
   const text = message.text?.trim() || "";
 
-  // Команда /start
   if (text === "/start") {
     await sendMessage(chatId,
       `👋 <b>Привет!</b>\n\n` +
@@ -153,14 +125,12 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  // Проверяем что это ссылка TikTok
   const isTikTok = text.includes("tiktok.com") || text.includes("vm.tiktok.com") || text.includes("vt.tiktok.com");
   if (!isTikTok) {
     await sendMessage(chatId, "❌ Отправь ссылку на видео TikTok.\n\nПример:\n<code>https://www.tiktok.com/@user/video/123</code>");
     return res.status(200).json({ ok: true });
   }
 
-  // Проверяем лимит
   if (!checkLimit(userId)) {
     await sendMessage(chatId,
       `⛔ <b>Лимит на сегодня исчерпан</b>\n\n` +
@@ -170,32 +140,27 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  // Показываем что обрабатываем
-  await sendMessage(chatId, "⏳ Скачиваю видео, подожди секунду...");
+  const waitMsg = await sendMessage(chatId, "⏳ Скачиваю видео, подожди секунду...");
+  const waitMsgId = waitMsg?.result?.message_id;
 
   try {
     const data = await getTikTokVideo(text);
-
     const videoUrl = data.hdplay || data.play;
     const thumbUrl = data.cover;
-    const author = data.author?.nickname || "unknown";
-    const title = data.title || "";
-    const duration = data.duration || 0;
-
-const caption = `❤️ Скачано @tiktok_save_pro_bot`;
-    // Получаем размер файла
+    const caption = `❤️ Скачано @tiktok_save_pro_bot`;
     const fileSize = await getFileSize(videoUrl);
     const fileSizeMb = fileSize / (1024 * 1024);
 
+    if (waitMsgId) await deleteMessage(chatId, waitMsgId);
+
     if (fileSizeMb <= 50 || fileSize === 0) {
-      // До 50 МБ — отправляем видео сразу
       await sendVideo(chatId, videoUrl, caption);
     } else {
-      // Больше 50 МБ — превью + кнопка скачать
       await sendPhoto(chatId, thumbUrl, caption + `\n\n📦 Размер: ${fileSizeMb.toFixed(1)} МБ`, videoUrl);
     }
 
   } catch (err) {
+    if (waitMsgId) await deleteMessage(chatId, waitMsgId);
     await sendMessage(chatId,
       `❌ <b>Не удалось скачать видео</b>\n\n` +
       `Возможные причины:\n` +
