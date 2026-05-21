@@ -75,12 +75,11 @@ function downloadBuffer(url) {
   });
 }
 
-function sendVideoBuffer(chatId, buffer, caption) {
+function sendVideoBuffer(chatId, buffer) {
   return new Promise((resolve, reject) => {
     const boundary = randomBytes(16).toString("hex");
     const part1 = Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n` +
       `--${boundary}\r\nContent-Disposition: form-data; name="supports_streaming"\r\n\r\ntrue\r\n` +
       `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="video.mp4"\r\nContent-Type: video/mp4\r\n\r\n`
     );
@@ -139,42 +138,46 @@ export default async function handler(req, res) {
 
   const chatId = message.chat.id;
   const userId = message.from.id;
+  const lang = message.from?.language_code || "en";
+  const isRu = lang.startsWith("ru") || lang.startsWith("uk") || lang.startsWith("be");
   const text = message.text?.trim() || "";
 
   if (text === "/start") {
     await sendMessage(chatId,
-      `👋 <b>Привет!</b>\n\n` +
-      `Я скачиваю видео из TikTok <b>без водяного знака</b>.\n\n` +
-      `Просто отправь мне ссылку на видео TikTok — и я пришлю тебе чистый mp4.\n\n` +
-      `📎 Пример:\n<code>https://www.tiktok.com/@user/video/123456</code>\n\n` +
-      `🤖 <a href="https://t.me/tiktok_pro_save_bot">Поделиться ботом</a>`
+      isRu
+        ? `👋 <b>Привет!</b>\n\nЯ скачиваю видео из TikTok <b>без водяного знака</b>.\n\nПросто отправь мне ссылку на видео TikTok — и я пришлю тебе чистый mp4.\n\n📎 Пример:\n<code>https://www.tiktok.com/@user/video/123456</code>`
+        : `👋 <b>Hello!</b>\n\nI download TikTok videos <b>without watermark</b>.\n\nJust send me a TikTok link and I'll send you a clean mp4.\n\n📎 Example:\n<code>https://www.tiktok.com/@user/video/123456</code>`
     );
     return res.status(200).json({ ok: true });
   }
 
   const isTikTok = text.includes("tiktok.com") || text.includes("vm.tiktok.com") || text.includes("vt.tiktok.com");
   if (!isTikTok) {
-    await sendMessage(chatId, "❌ Отправь ссылку на видео TikTok.\n\nПример:\n<code>https://www.tiktok.com/@user/video/123</code>");
+    await sendMessage(chatId,
+      isRu
+        ? "❌ Отправь ссылку на видео TikTok.\n\nПример:\n<code>https://www.tiktok.com/@user/video/123</code>"
+        : "❌ Send a TikTok video link.\n\nExample:\n<code>https://www.tiktok.com/@user/video/123</code>"
+    );
     return res.status(200).json({ ok: true });
   }
 
   if (!checkLimit(userId)) {
     await sendMessage(chatId,
-      `⛔ <b>Лимит на сегодня исчерпан</b>\n\n` +
-      `Бесплатно доступно ${DAILY_LIMIT} скачиваний в день.\n` +
-      `Возвращайся завтра! 🌅`
+      isRu
+        ? `⛔ <b>Лимит на сегодня исчерпан</b>\n\nБесплатно доступно ${DAILY_LIMIT} скачиваний в день.\nВозвращайся завтра! 🌅`
+        : `⛔ <b>Daily limit reached</b>\n\n${DAILY_LIMIT} free downloads per day.\nCome back tomorrow! 🌅`
     );
     return res.status(200).json({ ok: true });
   }
 
-  const waitMsg = await sendMessage(chatId, "⏳ Скачиваю видео, подожди секунду...");
+  const waitMsg = await sendMessage(chatId,
+    isRu ? "⏳ Скачиваю видео, подожди секунду..." : "⏳ Downloading, please wait..."
+  );
   const waitMsgId = waitMsg?.result?.message_id;
 
   try {
     const data = await getTikTokVideo(text);
     const videoUrl = data.hdplay || data.play;
-    const caption = `❤️ Скачано без водяного знака
-🤖 @tiktok_pro_save_bot`;
 
     const buffer = await downloadBuffer(videoUrl);
     const fileSizeMb = buffer.length / (1024 * 1024);
@@ -182,26 +185,33 @@ export default async function handler(req, res) {
     if (fileSizeMb > 50) {
       if (waitMsgId) await deleteMessage(chatId, waitMsgId);
       await sendMessage(chatId,
-        `❌ Видео слишком большое (${fileSizeMb.toFixed(1)} МБ).\n` +
-        `Telegram принимает файлы до 50 МБ через бота.\n\n` +
-        `Попробуй найти более короткую версию видео.`
+        isRu
+          ? `❌ Видео слишком большое (${fileSizeMb.toFixed(1)} МБ).\nTelegram принимает файлы до 50 МБ через бота.`
+          : `❌ Video is too large (${fileSizeMb.toFixed(1)} MB).\nTelegram bots support up to 50 MB.`
       );
     } else {
-      const result = await sendVideoBuffer(chatId, buffer, caption);
+      const result = await sendVideoBuffer(chatId, buffer);
       if (waitMsgId) await deleteMessage(chatId, waitMsgId);
-      if (!result?.ok) {
-        await sendMessage(chatId, `❌ Не удалось отправить видео: ${result?.description || "неизвестная ошибка"}`);
+      if (result?.ok) {
+        // Отправляем подпись отдельным сообщением — так ссылка будет кликабельной
+        await sendMessage(chatId,
+          `❤️ ${isRu ? "Скачано" : "Saved by"} <a href="https://t.me/tiktok_pro_save_bot">@tiktok_pro_save_bot</a>`
+        );
+      } else {
+        await sendMessage(chatId,
+          isRu
+            ? `❌ Не удалось отправить видео: ${result?.description || "неизвестная ошибка"}`
+            : `❌ Failed to send video: ${result?.description || "unknown error"}`
+        );
       }
     }
 
   } catch (err) {
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
     await sendMessage(chatId,
-      `❌ <b>Не удалось скачать видео</b>\n\n` +
-      `Возможные причины:\n` +
-      `• Видео приватное\n` +
-      `• Неверная ссылка\n` +
-      `• Попробуй ещё раз через минуту`
+      isRu
+        ? `❌ <b>Не удалось скачать видео</b>\n\nВозможные причины:\n• Видео приватное\n• Неверная ссылка\n• Попробуй ещё раз через минуту`
+        : `❌ <b>Failed to download video</b>\n\nPossible reasons:\n• Private video\n• Invalid link\n• Try again in a minute`
     );
   }
 
