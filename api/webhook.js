@@ -182,8 +182,7 @@ export default async function handler(req, res) {
     const title = data.title || "";
     const duration = data.duration || 0;
 
-    const caption = `🎬 <b>@${author}</b>\n${title ? `📝 ${title}\n` : ""}⏱ ${duration}с · без водяного знака`;
-
+const caption = `❤️ Скачано @tiktok_save_pro_bot`;
     // Получаем размер файла
     const fileSize = await getFileSize(videoUrl);
     const fileSizeMb = fileSize / (1024 * 1024);
