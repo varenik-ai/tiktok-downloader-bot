@@ -62,11 +62,8 @@ function sendVideo(chatId, videoUrl, caption) {
   return tgRequest("sendVideo", { chat_id: chatId, video: videoUrl, caption, parse_mode: "HTML", supports_streaming: true });
 }
 
-function sendPhoto(chatId, thumbUrl, caption, downloadUrl) {
-  return tgRequest("sendPhoto", {
-    chat_id: chatId, photo: thumbUrl, caption, parse_mode: "HTML",
-    reply_markup: JSON.stringify({ inline_keyboard: [[{ text: "⬇️ Скачать видео", url: downloadUrl }]] })
-  });
+function sendDocument(chatId, fileUrl, caption) {
+  return tgRequest("sendDocument", { chat_id: chatId, document: fileUrl, caption, parse_mode: "HTML" });
 }
 
 async function getTikTokVideo(url) {
@@ -146,7 +143,6 @@ export default async function handler(req, res) {
   try {
     const data = await getTikTokVideo(text);
     const videoUrl = data.hdplay || data.play;
-    const thumbUrl = data.cover;
     const caption = `❤️ Скачано @tiktok_save_pro_bot`;
     const fileSize = await getFileSize(videoUrl);
     const fileSizeMb = fileSize / (1024 * 1024);
@@ -154,24 +150,17 @@ export default async function handler(req, res) {
     if (waitMsgId) await deleteMessage(chatId, waitMsgId);
 
     if (fileSize > 0 && fileSizeMb > 50) {
-      // Больше 50 МБ — превью + кнопка скачать напрямую
-      await sendPhoto(
-        chatId,
-        thumbUrl,
-        caption + `\n\n📦 ${fileSizeMb.toFixed(1)} МБ · нажми кнопку чтобы скачать`,
-        videoUrl
-      );
-    } else {
-      // До 50 МБ — пробуем отправить видео
-      const result = await sendVideo(chatId, videoUrl, caption);
-      // Если Telegram не смог отправить — даём прямую ссылку
+      // Больше 50 МБ — отправляем как документ
+      const result = await sendDocument(chatId, videoUrl, caption + `\n\n📦 ${fileSizeMb.toFixed(1)} МБ`);
       if (!result?.ok) {
-        await sendPhoto(
-          chatId,
-          thumbUrl,
-          caption + `\n\n⬇️ Нажми кнопку чтобы скачать`,
-          videoUrl
-        );
+        await sendMessage(chatId, `❌ Файл слишком большой для отправки (${fileSizeMb.toFixed(1)} МБ).\nTelegram принимает файлы до 2 ГБ, но этот не удалось передать.`);
+      }
+    } else {
+      // До 50 МБ — отправляем как видео
+      const result = await sendVideo(chatId, videoUrl, caption);
+      if (!result?.ok) {
+        // Фоллбек — отправляем как документ
+        await sendDocument(chatId, videoUrl, caption);
       }
     }
 
