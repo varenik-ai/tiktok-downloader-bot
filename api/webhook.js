@@ -59,7 +59,6 @@ function deleteMessage(chatId, messageId) {
   return tgRequest("deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
-// Скачиваем видео в буфер
 function downloadBuffer(url) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith("https") ? https : http;
@@ -76,21 +75,17 @@ function downloadBuffer(url) {
   });
 }
 
-// Отправляем видео как multipart/form-data
 function sendVideoBuffer(chatId, buffer, caption) {
   return new Promise((resolve, reject) => {
     const boundary = randomBytes(16).toString("hex");
-    const filename = "video.mp4";
-
     const part1 = Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n` +
       `--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n` +
       `--${boundary}\r\nContent-Disposition: form-data; name="supports_streaming"\r\n\r\ntrue\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="${filename}"\r\nContent-Type: video/mp4\r\n\r\n`
+      `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="video.mp4"\r\nContent-Type: video/mp4\r\n\r\n`
     );
     const part2 = Buffer.from(`\r\n--${boundary}--\r\n`);
     const body = Buffer.concat([part1, buffer, part2]);
-
     const options = {
       hostname: "api.telegram.org",
       path: `/bot${BOT_TOKEN}/sendVideo`,
@@ -100,7 +95,6 @@ function sendVideoBuffer(chatId, buffer, caption) {
         "Content-Length": body.length
       }
     };
-
     const req = https.request(options, res => {
       let buf = "";
       res.on("data", c => buf += c);
@@ -180,13 +174,11 @@ export default async function handler(req, res) {
     const videoUrl = data.hdplay || data.play;
     const caption = `❤️ Скачано @tiktok_save_pro_bot`;
 
-    // Скачиваем видео в буфер на сервере
     const buffer = await downloadBuffer(videoUrl);
     const fileSizeMb = buffer.length / (1024 * 1024);
 
-    if (waitMsgId) await deleteMessage(chatId, waitMsgId);
-
     if (fileSizeMb > 50) {
+      if (waitMsgId) await deleteMessage(chatId, waitMsgId);
       await sendMessage(chatId,
         `❌ Видео слишком большое (${fileSizeMb.toFixed(1)} МБ).\n` +
         `Telegram принимает файлы до 50 МБ через бота.\n\n` +
@@ -194,6 +186,7 @@ export default async function handler(req, res) {
       );
     } else {
       const result = await sendVideoBuffer(chatId, buffer, caption);
+      if (waitMsgId) await deleteMessage(chatId, waitMsgId);
       if (!result?.ok) {
         await sendMessage(chatId, `❌ Не удалось отправить видео: ${result?.description || "неизвестная ошибка"}`);
       }
